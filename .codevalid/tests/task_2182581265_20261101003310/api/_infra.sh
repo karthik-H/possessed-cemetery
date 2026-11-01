@@ -148,3 +148,19 @@ cv_create_product() {
   CV_PRODUCT_ID=$(printf '%s' "$CV_HTTP_BODY" | jq -r '.product.id // empty')
   [ -n "$CV_PRODUCT_ID" ] || cv_fail "create product expected product.id in body" "${6:-$LINENO}"
 }
+
+# APP_CONTROL_URL is the test-infra supervisor (.codevalid/supervisor.mjs): POST /restart kills
+# the node process and starts a fresh one (simulates a service restart, wipes in-memory state).
+export APP_CONTROL_URL="${APP_CONTROL_URL:-http://app:6714}"
+
+# cv_restart_app [line] -> restarts the app process; fails if the supervisor does not report 200
+cv_restart_app() {
+  cv_http POST "$APP_CONTROL_URL/restart"
+  [ "$CV_HTTP_STATUS" = "200" ] || cv_fail "app restart expected 200 got $CV_HTTP_STATUS" "${1:-$LINENO}"
+  local i
+  for i in $(seq 1 30); do
+    if [ "$(command curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/health" || true)" = "200" ]; then return 0; fi
+    sleep 0.5
+  done
+  cv_fail "app not healthy after restart" "${1:-$LINENO}"
+}
